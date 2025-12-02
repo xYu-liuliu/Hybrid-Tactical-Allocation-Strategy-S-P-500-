@@ -75,8 +75,26 @@ Feature pruning and window redesign are guided by **LightGBM importance analysis
 This process turns feature engineering into a **model-feedback-driven optimization loop**, improving both signal quality and stability.
 
 
-## 3. Model-Driven Feature Refinement path
+## 3. Modeling Strategy 
+### 3.1 Final Hybrid Model
 
+The final production model follows a **hybrid linear–nonlinear return forecasting framework** under rolling retraining:
+
+- A **linear model** is used to **directly predict forward returns** and is **retrained daily**.
+- A **LightGBM model** is trained to predict the **residual errors of the linear forward-return forecasts** and is **retrained every 21 trading days** using a rolling window.
+- The final **forward return forecast** is formed as:
+  
+  > forward_return_hat = linear_prediction + residual_correction
+
+- This predicted forward return is then transformed into a **tradable position** through a deterministic **position sizing rule**.
+
+This design reflects a clear **division of labor**:
+- The linear model captures the dominant, fast-moving return dynamics.
+- LightGBM provides a slower-moving nonlinear correction without destabilizing the core return signal.
+
+Both models are trained and evaluated under a **strict walk-forward rolling-window protocol**, with feature windows and the nonlinear component updated every 21 trading days.
+
+### 3.2 Model Refinement Path 
 Before finalizing the feature configuration, multiple modeling paths were tested to **stress-test the stability and usefulness of the feature set**:
 
 1. **Direct Return Prediction (Linear vs. LightGBM)**  
