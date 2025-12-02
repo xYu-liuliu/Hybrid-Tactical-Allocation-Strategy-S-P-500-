@@ -45,16 +45,23 @@ All return-based variables are shifted by one period to ensure strict informatio
 These lagged variables also serve as inputs for subsequent rolling-window construction.
 
 ### (2) Multi-Scale Rolling Statistics
-For each base feature and each lagged return variable:
-- Rolling mean  
-- Rolling z-score  
-- Rolling min–max position  
-- First difference  
+For each base feature and each lagged return variable, the following transformations are applied:
+- Rolling mean
+- Rolling z-score
+- Rolling min–max position
+- First difference
 
-Rolling windows are **prefix-dependent**:
-- **V, S**: short–medium windows  
-- **E, P**: long-horizon windows  
-- **MOM**: medium-term momentum windows  
+Rolling windows are **prefix-dependent and model-feedback refined**:
+- **Lagged returns**: ultra–short horizons **(2, 3, 5, 10, 21)**
+- **V (Volatility)**: short–medium windows **(5, 21, 63)**
+- **S (Sector / Sentiment)**: short-term windows **(5, 10, 21)**
+- **M (Market)**: short–medium windows **(5, 10, 21)**
+- **MOM (Momentum)**: medium-term windows **(5, 21)**
+- **E (Economics)**: long-horizon windows **(63, 126, 252)**
+- **P (Price level / Valuation)**: long-horizon windows **(63, 252)**
+- **I (Interest / Macro rates)**: medium-horizon windows **(21, 63)**
+
+Window configurations were finalized after **LightGBM importance diagnostics**, with unstable short-horizon or redundant long-horizon windows pruned accordingly.
 
 ### (3) Causal Group-wise PCA with Winsorization
 - Group-wise PCA is computed on rolling or expanding windows.
@@ -112,7 +119,7 @@ Before finalizing the feature configuration, multiple modeling paths were tested
 4. **Feature Window Redesign Driven by Model Feedback**  
    Based on LightGBM feature importance diagnostics:
    - Volatility state features with persistently low explanatory power were removed,
-   - Sector features (S) were shifted to **short-term windows**,
+   - Sentiment features (S) were shifted to **short-term windows**,
    - Lagged return windows were compressed to **ultra-short horizons (2, 3, 5, 10, 21)**.
 
    After this structural redesign, residual modeling began to provide measurable incremental contribution.
