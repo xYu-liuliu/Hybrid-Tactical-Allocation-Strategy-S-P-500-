@@ -136,9 +136,9 @@ Position construction proceeds in three steps: **volatility normalization, nonli
 
 Let \(\sigma_t\) be the 21-day volatility proxy (`lagged_forward_returns_std21`) and \(\sigma_{\min}\) a small positive volatility floor. The raw forecast is first normalized:
 
-\[
-s_t = \frac{\hat{r}_{t+1}}{\max(\sigma_t, \sigma_{\min})},
-\]
+$$
+s_t = \frac{\hat{r}_{t+1}}{\max(\sigma_t, \sigma_{\min})}
+$$
 
 so that \(s_t\) behaves like a **predicted Sharpe ratio**.
 
@@ -146,9 +146,9 @@ so that \(s_t\) behaves like a **predicted Sharpe ratio**.
 
 With sensitivity parameter \(K > 0\), the base position is defined as:
 
-\[
-\tilde{p}_t = 1 + \tanh(K \, s_t),
-\]
+$$
+\tilde{p}_t = 1 + \tanh\!\big( K \, s_t \big)
+$$
 
 which maps small signals to near-neutral exposure and large signals to higher long exposure in a **smooth and monotonic** manner.
 
@@ -156,17 +156,11 @@ which maps small signals to near-neutral exposure and large signals to higher lo
 
 Let \(m_t\) denote the 21-day momentum proxy (`lagged_forward_returns_mean21`) and \(\theta_{\text{crash}}\) a negative crash threshold. If
 
-\[
-m_t < \theta_{\text{crash}} \quad \text{and} \quad \tilde{p}_t > 1,
-\]
+If \(m_t < \theta_{\text{crash}}\) and \(\tilde{p}_t > 1\), the position is capped at \(\tilde{p}_t = 1\).
 
-then the position is capped at \(\tilde{p}_t = 1\), preventing overweight exposure during crash-like regimes.
-
-Finally, the tradable position is clipped to the Kaggle-allowed range:
-
-\[
-p_t = \operatorname{clip}(\tilde{p}_t,\ 0,\ 2),
-\]
+$$
+p_t = \min\\big(2,\; \max(0,\; \tilde{p}_t)\big)
+$$
 
 ensuring all exposures remain within \([0, 2]\).
 
