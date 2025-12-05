@@ -125,29 +125,70 @@ Before finalizing the feature configuration, multiple modeling paths were tested
    After this structural redesign of the feature space, residual modeling began to provide **measurable incremental contribution**, leading to the final hybrid production model.
 ## 4. Position Construction & Risk Control
 
-The corrected **forward return forecast** from the hybrid model is transformed into a tradable position through a **deterministic position sizing rule**.
+The corrected **forward return forecast** from the hybrid model is transformed into a tradable position through a **deterministic, volatility-aware, and crash-protected position sizing rule**.
 
 ### (1) Signal-to-Position Mapping
-Let \(\hat{r}_{t+1}\) denote the predicted forward return. The trading position is constructed as a bounded nonlinear function of the signal:
 
-- Positive forecasts map to higher long exposure,
-- Smaller forecasts map to low or neutral exposure,
-- The mapping function is monotonic and smooth to avoid noisy regime flipping.
+Let \(\hat{r}_{t+1}\) denote the hybrid model’s forward return forecast at time \(t\).  
+Position construction proceeds in three steps: **volatility normalization, nonlinear squashing, and crash protection**.
 
-In practice, the raw signal is passed through a squashing function and then clipped, so that:
-- Very small signals do not trigger aggressive reallocations,
-- Extremely large signals are capped.
+**Step 1: Volatility-Normalized Signal (Predicted Sharpe)**  
+
+Let \(\sigma_t\) be the 21-day volatility proxy (`lagged_forward_returns_std21`) and \(\sigma_{\min}\) a small positive volatility floor. The raw forecast is first normalized:
+
+\[
+s_t = \frac{\hat{r}_{t+1}}{\max(\sigma_t, \sigma_{\min})},
+\]
+
+so that \(s_t\) behaves like a **predicted Sharpe ratio**.
+
+**Step 2: Smooth Nonlinear Position Mapping**
+
+With sensitivity parameter \(K > 0\), the base position is defined as:
+
+\[
+\tilde{p}_t = 1 + \tanh(K \, s_t),
+\]
+
+which maps small signals to near-neutral exposure and large signals to higher long exposure in a **smooth and monotonic** manner.
+
+**Step 3: Crash Brake and Final Clipping**
+
+Let \(m_t\) denote the 21-day momentum proxy (`lagged_forward_returns_mean21`) and \(\theta_{\text{crash}}\) a negative crash threshold. If
+
+\[
+m_t < \theta_{\text{crash}} \quad \text{and} \quad \tilde{p}_t > 1,
+\]
+
+then the position is capped at \(\tilde{p}_t = 1\), preventing overweight exposure during crash-like regimes.
+
+Finally, the tradable position is clipped to the Kaggle-allowed range:
+
+\[
+p_t = \operatorname{clip}(\tilde{p}_t,\ 0,\ 2),
+\]
+
+ensuring all exposures remain within \([0, 2]\).
+
+This construction guarantees that:
+- Signals are **scaled by recent volatility** (Sharpe-like normalization),
+- Positions are **smooth, bounded, and stable**,
+- Overweight exposure is **automatically suppressed under crash conditions**.
+
+---
 
 ### (2) Leverage and Exposure Control
-- A **hard upper bound** on position size is enforced to prevent extreme exposure under high-confidence forecasts.
-- Positions are normalized to stay within a pre-defined exposure range (e.g., between reduced and full long allocation).
-- This keeps the strategy in a **risk-budgeted** long-only (or long-tilted) regime rather than allowing unconstrained leverage.
+- A **hard upper bound of 2** on position size is enforced to comply with the Kaggle exposure constraint.
+- The baseline neutral exposure is centered at **1.0**, corresponding to full benchmark allocation.
+- The strategy therefore operates in a **risk-budgeted long-only regime**, avoiding unconstrained leverage.
+
+---
 
 ### (3) Causality and No Look-Ahead
 
-By construction, all model inputs are **lagged**, and the walk-forward training / evaluation protocol ensures that each position is based only on information that would have been available at the decision time, with no look-ahead into future returns.
+All inputs to the position rule (forecasts, volatility, and momentum) are based exclusively on **lagged and historical information**.  
+Together with the walk-forward training and evaluation protocol, this guarantees that each position \(p_t\) is formed using only information that would have been available at the actual decision time, with **no look-ahead bias**.
 
-Strategy performance is evaluated under a **strict walk-forward out-of-sample backtesting framework**, fully aligned with the Kaggle public leaderboard setting.
 
 ### (1) Walk-Forward Evaluation Protocol
 - The full dataset is split chronologically.
