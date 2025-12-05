@@ -117,9 +117,62 @@ Before finalizing the feature configuration, multiple modeling paths were tested
    Result: residual predictability was weak, with signal-to-noise ratio close to zero.
 
 4. **Feature Window Redesign Driven by Model Feedback**  
-   Based on LightGBM feature importance diagnostics:
+   Based on LightGBM feature-importance diagnostics:
    - Volatility state features with persistently low explanatory power were removed,
    - Sentiment features (S) were shifted to **short-term windows**,
    - Lagged return windows were compressed to **ultra-short horizons (2, 3, 5, 10, 21)**.
 
-   After this structural redesign, residual modeling began to provide measurable incremental contribution.
+   After this structural redesign of the feature space, residual modeling began to provide **measurable incremental contribution**, leading to the final hybrid production model.
+## 4. Position Construction & Risk Control
+
+The corrected **forward return forecast** from the hybrid model is transformed into a tradable position through a **deterministic position sizing rule**.
+
+### (1) Signal-to-Position Mapping
+Let \(\hat{r}_{t+1}\) denote the predicted forward return. The trading position is constructed as a bounded nonlinear function of the signal:
+
+- Positive forecasts map to higher long exposure,
+- Smaller forecasts map to low or neutral exposure,
+- The mapping function is monotonic and smooth to avoid noisy regime flipping.
+
+In practice, the raw signal is passed through a squashing function and then clipped, so that:
+- Very small signals do not trigger aggressive reallocations,
+- Extremely large signals are capped.
+
+### (2) Leverage and Exposure Control
+- A **hard upper bound** on position size is enforced to prevent extreme exposure under high-confidence forecasts.
+- Positions are normalized to stay within a pre-defined exposure range (e.g., between reduced and full long allocation).
+- This keeps the strategy in a **risk-budgeted** long-only (or long-tilted) regime rather than allowing unconstrained leverage.
+
+### (3) Causality and No Look-Ahead
+
+By construction, all model inputs are **lagged**, and the walk-forward training / evaluation protocol ensures that each position is based only on information that would have been available at the decision time, with no look-ahead into future returns.
+
+Strategy performance is evaluated under a **strict walk-forward out-of-sample backtesting framework**, fully aligned with the Kaggle public leaderboard setting.
+
+### (1) Walk-Forward Evaluation Protocol
+- The full dataset is split chronologically.
+- The **last 180 trading days** are reserved as a fixed **out-of-sample validation / test set**.
+- All earlier data are used for **rolling training and validation**.
+- At each time step:
+  - The linear model is retrained **daily**,
+  - The LightGBM residual model is retrained every **21 trading days**,
+  - Predictions and positions are generated strictly forward in time.
+
+No information from the validation or test period is used in model training or feature construction.
+
+### (2) Trading Simulation
+- At each date, the hybrid model produces a **forward return forecast**.
+- The forecast is transformed into a trading position using the deterministic position sizing rule.
+- Strategy returns are computed from realized forward returns and the corresponding positions.
+
+All signals, positions, and returns are generated in a **fully causal manner** with no look-ahead bias.
+
+### (3) Performance Metrics
+- The primary evaluation metric is the **out-of-sample Sharpe ratio**.
+- Additional diagnostics include:
+  - Cumulative return curve,
+  - Daily return distribution,
+  - Maximum drawdown,
+  - Turnover statistics.
+
+Performance is reported **only on the forward hold-out window**, reflecting deployable rather than in-sample behavior.
