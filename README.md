@@ -43,8 +43,11 @@ before the run, and the lines of work that closed are recorded with the
 measurement that closed them.
 
 **Every step, with its numbers and the script that produced it, is in
-[`docs/performance_report.pdf`](docs/performance_report.pdf).** This file is the
-map.
+[`docs/performance_report.pdf`](docs/performance_report.pdf).** That report is a
+record of the run: each step is a script, the span it was scored on, the numbers
+it returned, and the question those numbers hand to the next step. It reports
+measurements rather than interpreting them, so it is not a market analysis or a
+strategy write-up. This file is the map.
 
 ---
 
@@ -69,7 +72,7 @@ binds, so the adjusted Sharpe above is the plain Sharpe.
 
 The strongest statement the evidence supports is not any one of those rows: of
 the 90 smoothed configurations, 29 clear both dev and valid, and **all 29 are
-positive on test** — mean +0.129, minimum +0.079.
+positive on test**: mean +0.129, minimum +0.079.
 
 ---
 
@@ -122,7 +125,7 @@ full run writes:
 ```
 
 Every script writes `<name>.json` into its own directory and reads nothing from
-another script's, except the two signal caches — marked above.
+another script's, except the two signal caches marked above.
 
 ---
 
@@ -166,16 +169,16 @@ re-running an earlier one.
 │  └─ scale_order.py                          #   A: solve the scale before or after smoothing
 │
 ├─ docs/                                      # where the chain above is written up
-│  ├─ performance_report.pdf                  #   THE REPORT: every step, in order
+│  ├─ performance_report.pdf                  #   THE REPORT: what each step ran and returned
 │  ├─ method.tex                              #   its source
 │  └─ METHOD.md                               #   the same chain in markdown
 └─ README.md
 ```
 
-**[`docs/performance_report.pdf`](docs/performance_report.pdf) is the end of that chain.**
-It walks the files above in the order they were run, and for each one gives the
-question, the numbers, what the numbers settled, and what the next file therefore
-had to measure.
+**[`docs/performance_report.pdf`](docs/performance_report.pdf) is the end of that
+chain.** It walks the files above in the order they were run, and for each one
+gives the question, the numbers, what the numbers settled, and what the next file
+therefore had to measure. Anything it does not measure, it does not claim.
 
 The directories are for reading, not layering: imports cross between all three, so
 every entry script puts the repo root and the three group directories on
@@ -245,7 +248,7 @@ valid only; `--reveal-test` opens the third span.
 
 ## What this is not
 
-The edge is small — `+0.036` on dev, the widest span — and it is scored by a
+The edge is small, `+0.036` on dev and that is the widest span, and it is scored by a
 metric that charges nothing for trading on the most liquid index exposure there
 is.
 
