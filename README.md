@@ -1,213 +1,243 @@
-# Hybrid Tactical Allocation Strategy on S&P 500
+# Hull Tactical — predict, then size
 
-This project implements an end-to-end **signal → position → strategy return** pipeline for tactical asset allocation on the S&P 500, built upon the Kaggle **Hull Tactical Market Prediction** dataset. The central technical contribution of the system is a **causal, regime-aware feature engineering framework** designed for stable time-series modeling.
+This project is based on the **Hull Tactical Market Prediction** dataset from
+Kaggle: <https://www.kaggle.com/competitions/hull-tactical-market-prediction/data>
+It gives daily S&P 500 forward returns, the risk-free rate, and 93 raw predictors
+grouped by prefix. The competition is over and nothing here was submitted to it.
+The metric is kept because it is a reasonable scoring rule with a volatility
+constraint built in.
 
-A **linear base model** provides the main return signal, while a **LightGBM model is trained only on the residual errors** to capture nonlinear deviations and regime-dependent corrections. The combined signal is transformed into **dynamic trading positions** with explicit risk control.
+**The model is the smallest part of this.** What the project is, besides its
+result, in the order the three code directories run:
 
-Strategy performance is evaluated using an **out-of-sample Sharpe ratio** under a **strict walk-forward evaluation scheme** with no look-ahead bias. The project aims to showcase an **industrial-grade quantitative modeling pipeline**, emphasizing feature stability, model consistency, and realistic trading evaluation.
+**1. Feature engineering.** `stage1/Hull_Tactical_feature_engineering.py`.
+93 raw columns to 1132 features. Group-specific rolling windows, seven groups
+each on its own clock. Causal group PCA refitted at every row on a trailing
+window, inputs winsorised at the in-window 98th percentile. Regime gates built
+from those PCA factors. A lagged return block at ultra-short horizons. Every
+transform reads rows `<= t` only, and the three-way walk-forward split is cut
+once and enforced structurally, so the holdout span is unreachable unless a
+script names it.
 
-## 1. Dataset
-This project is based on the **Hull Tactical Market Prediction** dataset from Kaggle:  
-https://www.kaggle.com/competitions/hull-tactical-market-prediction/data  
+**2. Feature diagnosis.** The rest of `stage1/`. The group factors are checked
+for the sign flips their own construction can produce, at 4–5% of rows. Model
+capacity is frozen before any feature is tested, because a tree at four leaves
+touches 267 of 1132 columns and cannot report on the rest. Each feature block is
+then removed in turn at a model large enough to reach it: every removal costs or
+ties, so all 1132 columns stay. The last step separates the usable half of the
+model's output from the unusable, with the magnitude overstated 11.5× at
+`R2 = -0.261` against zero, and the order strong at a mean per-block Spearman of
+`0.1060`, `t = 10.93`, positive in 91.3% of blocks.
 
-The dataset includes daily S&P 500 **forward returns**, **risk-free rates**, and a rich set of predictors grouped by prefixes:
+**3. Model selection and mapping.** `stage2/`. Ridge and LightGBM order returns
+about equally, and the Ridge ships because a configuration chosen on one span
+carries to the next for it (+0.43) and inverts for the tree (−0.52). The rest
+turns that order into a daily position under a causally solved volatility budget:
+seven curve forms at matched risk, the amplitude read off the unpenalised Sharpe,
+the reference set the percentile is taken against, the length of the removed mean,
+and the turnover control.
 
-- **E**: economic / macro indicators  
-- **S**: sentiment signals  
-- **V**: volatility measures  
-- **M**: market / price-based indicators  
-- **MOM**: momentum factors  
-- **P**: positioning-related variables  
-- **I**: institutional / information-type features  
-- **D**: date / calendar features  
+Throughout, every contrast is reported beside its detectable width, twice the
+standard error, rather than a p-value. Thresholds and selection rules are fixed
+before the run, and the lines of work that closed are recorded with the
+measurement that closed them.
 
-Following the competition setup, the **last 180 trading days** are used as a fixed **out-of-sample hold-out set**, while all earlier data are used for training and walk-forward validation.
-
-To ensure strict information-set consistency, all return-based targets are converted into **lagged variables**, so that each trading signal is generated using only information available up to \(t-1\), fully eliminating look-ahead bias.
-
-## 2. Feature Engineering (Core Contribution)
-
-The main technical contribution of this project lies in the **feature engineering pipeline**, rather than in the choice of predictive models.
-
-Key principles:
-- All features are constructed **causally**, using only past information.
-- All return-related variables are converted into **lagged form to align with the public leaderboard information set**.
-- Different economic groups (E, S, V, M, MOM, P, I) are assigned **group-specific rolling windows**.
-- Both **short-term dynamics and long-term regimes** are explicitly modeled.
-
-### (1) Lagged Returns and Excess Returns (Leaderboard Alignment)
-All return-based variables are shifted by one period to ensure strict information-set consistency:
-- Lag-1 forward returns  
-- Lag-1 risk-free rate  
-- Lag-1 market excess return  
-- Lagged excess return  
-
-These lagged variables also serve as inputs for subsequent rolling-window construction.
-
-### (2) Multi-Scale Rolling Statistics
-For each base feature and each lagged return variable, the following transformations are applied:
-- Rolling mean
-- Rolling z-score
-- Rolling min–max position
-- First difference
-
-Rolling windows are **prefix-dependent and model-feedback refined**:
-- **Lagged returns**: ultra–short horizons **(2, 3, 5, 10, 21)**
-- **V (Volatility)**: short–medium windows **(5, 21, 63)**
-- **S (Sector / Sentiment)**: short-term windows **(5, 10, 21)**
-- **M (Market)**: short–medium windows **(5, 10, 21)**
-- **MOM (Momentum)**: medium-term windows **(5, 21)**
-- **E (Economics)**: long-horizon windows **(63, 126, 252)**
-- **P (Price level / Valuation)**: long-horizon windows **(63, 252)**
-- **I (Interest / Macro rates)**: medium-horizon windows **(21, 63)**
-
-Window configurations were finalized after **LightGBM importance diagnostics**, with unstable short-horizon or redundant long-horizon windows pruned accordingly.
-
-### (3) Causal Group-wise PCA with Winsorization
-- Group-wise PCA is computed on rolling or expanding windows.
-- Inputs are winsorized using **in-window quantiles** to control outliers.
-- PCA directions are aligned via correlation with the in-sample reference.
-
-### (4) Regime-Gated Interactions
-- Macro and volatility PC factors act as **regime gates**.
-- Selected rolling z-score features are multiplicatively amplified under strong regimes.
-- All gate values are bounded for numerical and risk stability.
-
-### (5) LightGBM-Driven Feature Selection and Window Refinement
-Feature pruning and window redesign are guided by **LightGBM importance analysis** rather than heuristic filters:
-- Low-importance and noisy features are removed,
-- Short-horizon windows with weak contribution are pruned,
-- Redundant temporal scales are compressed.
-
-This process turns feature engineering into a **model-feedback-driven optimization loop**, improving both signal quality and stability.
-
-
-## 3. Modeling Strategy 
-### 3.1 Final Hybrid Model
-
-The final production model follows a **hybrid linear–nonlinear return forecasting framework** under rolling retraining:
-
-- A **linear model** is used to **directly predict forward returns** and is **retrained daily**.
-- A **LightGBM model** is trained to predict the **residual errors of the linear forward-return forecasts** and is **retrained every 21 trading days** using a rolling window.
-- The final **forward return forecast** is formed as:
-  
-  > forward_return_hat = linear_prediction + residual_correction
-
-- This predicted forward return is then transformed into a **tradable position** through a deterministic **position sizing rule**.
-
-This design reflects a clear **division of labor**:
-- The linear model captures the dominant, fast-moving return dynamics.
-- LightGBM provides a slower-moving nonlinear correction without destabilizing the core return signal.
-
-Both models are trained and evaluated under a **strict walk-forward rolling-window protocol**, with feature windows and the nonlinear component updated every 21 trading days.
-
-### 3.2 Model Refinement Path 
-Before finalizing the feature configuration, multiple modeling paths were tested to **stress-test the stability and usefulness of the feature set**:
-
-1. **Direct Return Prediction (Linear vs. LightGBM)**  
-   Both Linear Regression and LightGBM were first applied to directly predict forward returns.  
-   Result: the linear model consistently outperformed LightGBM in both stability and out-of-sample trading performance.
-
-2. **Regime Filtering via LightGBM**  
-   LightGBM was then used to classify market regimes, conditioning whether the linear signal should be traded.  
-   Result: regime predictions were unstable and significantly degraded downstream Sharpe performance.
-
-3. **Residual Modeling with Fixed Features**  
-   LightGBM was next applied to predict residuals from the linear model under the original feature configuration.  
-   Result: residual predictability was weak, with signal-to-noise ratio close to zero.
-
-4. **Feature Window Redesign Driven by Model Feedback**  
-   Based on LightGBM feature-importance diagnostics:
-   - Volatility state features with persistently low explanatory power were removed,
-   - Sentiment features (S) were shifted to **short-term windows**,
-   - Lagged return windows were compressed to **ultra-short horizons (2, 3, 5, 10, 21)**.
-
-   After this structural redesign of the feature space, residual modeling began to provide **measurable incremental contribution**, leading to the final hybrid production model.
-## 4. Position Construction & Risk Control
-
-The corrected **forward return forecast** from the hybrid model is transformed into a tradable position through a **deterministic, volatility-aware, and crash-protected position sizing rule**.
-
-### (1) Signal-to-Position Mapping
-
-Let \(\hat{r}_{t+1}\) denote the hybrid model’s forward return forecast at time \(t\).  
-Position construction proceeds in three steps: **volatility normalization, nonlinear squashing, and crash protection**.
-
-**Step 1: Volatility-Normalized Signal (Predicted Sharpe)**  
-
-Let \(\sigma_t\) be the 21-day volatility proxy (`lagged_forward_returns_std21`) and \(\sigma_{\min}\) a small positive volatility floor. The raw forecast is first normalized:
-
-$$
-s_t = \frac{\hat{r}_{t+1}}{\max(\sigma_t, \sigma_{\min})}
-$$
-
-so that \(s_t\) behaves like a **predicted Sharpe ratio**.
-
-**Step 2: Smooth Nonlinear Position Mapping**
-
-With sensitivity parameter \(K > 0\), the base position is defined as:
-
-$$
-\tilde{p}_t = 1 + \tanh\!\big( K \, s_t \big)
-$$
-
-which maps small signals to near-neutral exposure and large signals to higher long exposure in a **smooth and monotonic** manner.
-
-**Step 3: Crash Brake and Final Clipping**
-
-Let \(m_t\) denote the 21-day momentum proxy (`lagged_forward_returns_mean21`) and \(\theta_{\text{crash}}\) a negative crash threshold. If
-
-If \(m_t < \theta_{\text{crash}}\) and \(\tilde{p}_t > 1\), the position is capped at \(\tilde{p}_t = 1\).
-
-$$
-p_t = \min\\big(2,\; \max(0,\; \tilde{p}_t)\big)
-$$
-
-ensuring all exposures remain within \([0, 2]\).
-
-This construction guarantees that:
-- Signals are **scaled by recent volatility** (Sharpe-like normalization),
-- Positions are **smooth, bounded, and stable**,
-- Overweight exposure is **automatically suppressed under crash conditions**.
+**Every step, with its numbers and the script that produced it, is in
+[`docs/performance_report.pdf`](docs/performance_report.pdf).** This file is the
+map.
 
 ---
 
-### (2) Leverage and Exposure Control
-- A **hard upper bound of 2** on position size is enforced to comply with the Kaggle exposure constraint.
-- The baseline neutral exposure is centered at **1.0**, corresponding to full benchmark allocation.
-- The strategy therefore operates in a **risk-budgeted long-only regime**, avoiding unconstrained leverage.
+## Result
+
+Ridge on a rolling 756-row window, refit every 84 rows; the recent mean of its
+own predictions removed; a trailing percentile of what is left; the scale solved
+daily to the metric's volatility kink; the position smoothed with an EWMA.
+
+Adjusted Sharpe, against buy-and-hold at 0.415 / 0.968 / 0.302:
+
+| selection rule | configuration | dev | valid | **test** |
+|---|---|---|---|---|
+| **A** maximin(dev, valid) | `ewm3 × hl3 × rank252` | 0.451 | 1.030 | **0.435** |
+| **B/C** max valid, max mean | `mean5 × hl2 × rank504` | 0.448 | 1.183 | **0.448** |
+| **D** simplest flat-window mean | `mean8 × hl5 × rank252` | 0.449 | 1.011 | **0.399** |
+
+`dev` fits, `valid` selects, `test` is held out and scored once. Three rules are
+reported rather than one because the top of the dev+valid ranking is a tie.
+Turnover runs 4–15% of notional a day, and neither of the metric's penalties ever
+binds, so the adjusted Sharpe above is the plain Sharpe.
+
+The strongest statement the evidence supports is not any one of those rows: of
+the 90 smoothed configurations, 29 clear both dev and valid, and **all 29 are
+positive on test** — mean +0.129, minimum +0.079.
 
 ---
 
-### (3) Causality and No Look-Ahead
+## Where results are stored
 
-All inputs to the position rule (forecasts, volatility, and momentum) are based exclusively on **lagged and historical information**.  
-Together with the walk-forward training and evaluation protocol, this guarantees that each position \(p_t\) is formed using only information that would have been available at the actual decision time, with **no look-ahead bias**.
+The data and every cached result live outside the repo, beside it. This is what a
+full run writes:
 
+```
+<working dir>/
+│
+├─ train.csv                                  # Kaggle raw series, 8990 rows
+│
+└─ kaggle_hull/
+   ├─ all_feature_last_8990.csv               # Stage 1: 8918 rows × 1132 feature columns
+   │
+   ├─ splits/                                 # Stage 2: the only way in after this point
+   │  ├─ train_processed.csv                  #   6609 rows, 5796 scored, 69 folds
+   │  ├─ valid_processed.csv                  #   1597 rows,  840 scored, 10 folds
+   │  ├─ test_processed.csv                   #   1694 rows,  924 scored, 11 folds
+   │  └─ manifest.json                        #   where each slice begins, and under what constants
+   │
+   └─ probe/                                  # one directory per script, named after it
+      │
+      ├─ capacity_data/                       # Stage 3: per-cell fold scores
+      ├─ capacity_window_grid/                # Stage 3: window × capacity  ← FROZEN HERE
+      │  └─ g_W{w}_T{t}_bag7_seed{s}.csv      #   cached tree signals, reused by Stage 6
+      ├─ embargo_capacity/                    # Stage 3: capacity re-swept at embargo 0
+      │  └─ signals/e0_c117_{span}_seed{s}.csv  #   the tree cache Stage 8's contrast arm reads
+      │
+      ├─ ablation/                            # Stage 4: ablation at the default tree
+      ├─ ablation_T117/                       # Stage 4: the same at 117 leaves
+      ├─ tree_sensitivity/                    # Stage 4: five hyperparameter axes
+      │
+      ├─ ridge_signal/                        # Stage 5: level vs order, and the Ridge cache
+      │  └─ ridge_{dev,valid,test}.csv           #   the only Ridge cache; read by Stage 8
+      ├─ signal_diagnostics/                  # Stage 5: the same three tests, LightGBM
+      │
+      ├─ mapping_form/                        # Stage 6: curve, amplitude, and the two windows
+      │
+      ├─ level_refit/{tree,ridge}/            # Stage 7: can a fit's output level be estimated
+      ├─ one_model/{tree,ridge}/              # Stage 7: refit count vs training size
+      │
+      ├─ detrend_sweep/                       # Stage 8: what is removed, and what it costs
+      │
+      ├─ pipeline/                            # Stage 9: the final rule
+      │  ├─ signal.csv                        #   the Ridge OOS predictions, all three spans
+      │  └─ pipeline.json                     #   the result table
+      └─ scale_order/                         # Stage 9: solve the scale before or after smoothing
+```
 
-### (1) Walk-Forward Evaluation Protocol
-- The full dataset is split chronologically.
-- The **last 180 trading days** are reserved as a fixed **out-of-sample validation / test set**.
-- All earlier data are used for **rolling training and validation**.
-- At each time step:
-  - The linear model is retrained **daily**,
-  - The LightGBM residual model is retrained every **21 trading days**,
-  - Predictions and positions are generated strictly forward in time.
+Every script writes `<name>.json` into its own directory and reads nothing from
+another script's, except the two signal caches — marked above.
 
-No information from the validation or test period is used in model training or feature construction.
+---
 
-### (2) Trading Simulation
-- At each date, the hybrid model produces a **forward return forecast**.
-- The forecast is transformed into a trading position using the deterministic position sizing rule.
-- Strategy returns are computed from realized forward returns and the corresponding positions.
+## Scripts
 
-All signals, positions, and returns are generated in a **fully causal manner** with no look-ahead bias.
+Sixteen entry points and ten utilities. Each one settles a numbered step of the
+report and caches its output, so re-running a later stage does not require
+re-running an earlier one.
 
-### (3) Performance Metrics
-- The primary evaluation metric is the **out-of-sample Sharpe ratio**.
-- Additional diagnostics include:
-  - Cumulative return curve,
-  - Daily return distribution,
-  - Maximum drawdown,
-  - Turnover statistics.
+```
+├─ tools/                                     # shared machinery, imported never run
+│  ├─ paths.py                                #   every path; ROOT walks up to the data
+│  ├─ wfo.py                                  #   walk-forward fold geometry, purge/embargo
+│  ├─ hull_probe.py                           #   data, metric, frozen constants
+│  ├─ split_data.py                           #   2: cut the split once; load_span / load_through
+│  ├─ mapping.py                              #   detrended percentile, scale solver
+│  ├─ ranking.py                              #   detrend, trailing rank, block statistics, tau
+│  ├─ scoring.py                              #   cached signals, adjusted Sharpe, paired tests
+│  ├─ capacity_data.py                        #   bagged tree signal, fold cache
+│  ├─ step2_tails.py                          #   decile-tail scoring
+│  ├─ diagnostics.py                          #   HAC OLS and spanning regression
+│  ├─ select_probe.py                         #   feature-selection probe
+│  └─ audit_config.py                         #   guard: assert the frozen configuration
+│
+├─ stage1/                                    # the signal layer
+│  ├─ Hull_Tactical_feature_engineering.py    #   1: build the 1132 columns
+│  ├─ pc1_check.py                            #   1: group-PCA sign-flip check
+│  ├─ capacity_window_grid.py                 #   3: window × capacity, frozen at 756/117
+│  ├─ embargo_capacity.py                     #   3: capacity re-swept at embargo 0
+│  ├─ ablate_blocks.py                        #   4: remove one feature block at a time
+│  ├─ tree_sensitivity.py                     #   4: five hyperparameter axes
+│  ├─ ridge_signal.py                         #   5: fit and cache the Ridge, then diagnose it
+│  └─ signal_diagnostics.py                   #   5: the same three tests, on the LightGBM
+│
+├─ stage2/                                    # the mapping layer
+│  ├─ mapping_form.py                         #   6: --curves / --params / --axes
+│  ├─ level_refit.py                          #   7: --model {tree,ridge}, twelve level estimators
+│  ├─ one_model.py                            #   7: --model {tree,ridge}, refits vs training size
+│  ├─ detrend_sweep.py                        #   8: --grid / --axis / --control
+│  ├─ pipeline.py                             #   9: the final rule, end to end, all three spans
+│  └─ scale_order.py                          #   9: solve the scale before or after smoothing
+│
+├─ docs/                                      # where the chain above is written up
+│  ├─ performance_report.pdf                     #   THE REPORT: every step, in order
+│  ├─ method.tex                              #   its source
+│  └─ METHOD.md                               #   the same chain in markdown
+└─ README.md
+```
 
-Performance is reported **only on the forward hold-out window**, reflecting deployable rather than in-sample behavior.
+**[`docs/performance_report.pdf`](docs/performance_report.pdf) is the end of that chain.**
+It walks the files above in the order they were run, and for each one gives the
+question, the numbers, what the numbers settled, and what the next file therefore
+had to measure.
+
+The directories are for reading, not layering: imports cross between all three, so
+every entry script puts the repo root and the three group directories on
+`sys.path`, and `paths.py` walks up to find `kaggle_hull/`. No import line depends
+on the layout.
+
+`audit_config.py` sits in `tools/` because everything imports the constants it
+checks, but it is run directly and exits with the number of mismatches.
+
+---
+
+## Stages
+
+| stage | what it settles | span |
+|---|---|---|
+| **1** | the 1132 feature columns, and that every transform is causal | — |
+| **2** | the split, cut once, so `test` is unreachable unless named | — |
+| **3** | training window and model capacity, **frozen before any feature test** | dev |
+| **4** | which feature blocks carry signal, and the remaining hyperparameters | dev |
+| **5** | the model's order is informative and its magnitude is not | dev |
+| **6** | the curve's shape does not matter; the volatility budget does | dev |
+| **7** | why the Ridge ships, and that a fit's output level cannot be estimated | dev, valid |
+| **8** | how much of the recent mean to remove, and how to hold turnover down | dev, valid |
+| **9** | the rule, end to end | all three |
+
+Stage 3 comes before stage 4 on purpose. The first ablation ran at the default
+tree settings and returned null for every block — but those settings grow four
+leaves on a 756-row window and touch 267 of 1132 columns, so the null was a
+statement about the model, not the features. Capacity had to be fixed first: at 4
+leaves every block's effect sits inside ±0.067, at 117 the D group separates at
+−0.187 (t = −2.81). Step 1.4 of the report has the rest.
+
+Stage 2 comes after stage 1 on purpose too. The feature builder drops the leading
+warm-up rows, so the raw series has 8990 rows and the feature table 8918; a split
+computed on the raw index lands 58 rows away from where the models cut.
+
+---
+
+## Reproducing
+
+```bash
+python stage1/Hull_Tactical_feature_engineering.py   # writes all_feature_last_8990.csv
+python tools/split_data.py --commit                 # writes the three slices and manifest.json
+python tools/audit_config.py                        # asserts the frozen configuration
+python stage2/pipeline.py --commit                  # 90 closed-form Ridge fits, then score
+```
+
+`pipeline.py` is self-contained: it imports nothing from the experiment scripts,
+because a strategy should be readable without its search history.
+
+Two conventions live side by side: the scripts that write a signal cache print a
+plan and exit unless given `--commit`, while `capacity_window_grid.py`,
+`ablate_blocks.py` and `tree_sensitivity.py` do the work by default and take
+`--plan` for the dry run. `detrend_sweep.py` and `scale_order.py` score dev and
+valid only; `--reveal-test` opens the third span.
+
+## What this is not
+
+The edge is small — `+0.036` on dev, the widest span — and it is scored by a
+metric that charges nothing for trading on the most liquid index exposure there
+is.
+
+Two mechanisms are open. Why removing a *short* recent mean pays when removing
+nothing orders better (§2.5), and why the useful lengths stop at 21 (§2.6). The
+account that fitted the LightGBM does not apply to the model that ships.
