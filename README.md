@@ -10,7 +10,7 @@ constraint built in.
 **The model is the smallest part of this.** What the project is, besides its
 result, in the order the three code directories run:
 
-**1. Feature engineering.** `stage1/Hull_Tactical_feature_engineering.py`.
+**1. Feature engineering** (`stage1/Hull_Tactical_feature_engineering.py`).
 93 raw columns to 1132 features. Group-specific rolling windows, seven groups
 each on its own clock. Causal group PCA refitted at every row on a trailing
 window, inputs winsorised at the in-window 98th percentile. Regime gates built
@@ -19,7 +19,7 @@ transform reads rows `<= t` only, and the three-way walk-forward split is cut
 once and enforced structurally, so the holdout span is unreachable unless a
 script names it.
 
-**2. Feature diagnosis.** The rest of `stage1/`. The group factors are checked
+**2. Feature diagnosis** (the rest of `stage1/`). The group factors are checked
 for the sign flips their own construction can produce, at 4–5% of rows. Model
 capacity is frozen before any feature is tested, because a tree at four leaves
 touches 267 of 1132 columns and cannot report on the rest. Each feature block is
@@ -29,7 +29,7 @@ model's output from the unusable, with the magnitude overstated 11.5× at
 `R2 = -0.261` against zero, and the order strong at a mean per-block Spearman of
 `0.1060`, `t = 10.93`, positive in 91.3% of blocks.
 
-**3. Model selection and mapping.** `stage2/`. Ridge and LightGBM order returns
+**3. Model selection and mapping** (`stage2/`). Ridge and LightGBM order returns
 about equally, and the Ridge ships because a configuration chosen on one span
 carries to the next for it (+0.43) and inverts for the tree (−0.52). The rest
 turns that order into a daily position under a causally solved volatility budget:
@@ -137,7 +137,7 @@ re-running an earlier one.
 │  ├─ paths.py                                #   every path; ROOT walks up to the data
 │  ├─ wfo.py                                  #   walk-forward fold geometry, purge/embargo
 │  ├─ hull_probe.py                           #   data, metric, frozen constants
-│  ├─ split_data.py                           #   2: cut the split once; load_span / load_through
+│  ├─ split_data.py                           # 1.1: cut the split once; load_span / load_through
 │  ├─ mapping.py                              #   detrended percentile, scale solver
 │  ├─ ranking.py                              #   detrend, trailing rank, block statistics, tau
 │  ├─ scoring.py                              #   cached signals, adjusted Sharpe, paired tests
@@ -148,25 +148,25 @@ re-running an earlier one.
 │  └─ audit_config.py                         #   guard: assert the frozen configuration
 │
 ├─ stage1/                                    # the signal layer
-│  ├─ Hull_Tactical_feature_engineering.py    #   1: build the 1132 columns
-│  ├─ pc1_check.py                            #   1: group-PCA sign-flip check
-│  ├─ capacity_window_grid.py                 #   3: window × capacity, frozen at 756/117
-│  ├─ embargo_capacity.py                     #   3: capacity re-swept at embargo 0
-│  ├─ ablate_blocks.py                        #   4: remove one feature block at a time
-│  ├─ tree_sensitivity.py                     #   4: five hyperparameter axes
-│  ├─ ridge_signal.py                         #   5: fit and cache the Ridge, then diagnose it
-│  └─ signal_diagnostics.py                   #   5: the same three tests, on the LightGBM
+│  ├─ Hull_Tactical_feature_engineering.py    # 1.1: build the 1132 columns
+│  ├─ pc1_check.py                            # 1.2: group-PCA sign-flip check
+│  ├─ capacity_window_grid.py                 # 1.3: window × capacity, frozen at 756/117
+│  ├─ embargo_capacity.py                     # 1.3: capacity re-swept at embargo 0
+│  ├─ ablate_blocks.py                        # 1.4: remove one feature block at a time
+│  ├─ tree_sensitivity.py                     # 1.5: five hyperparameter axes
+│  ├─ ridge_signal.py                         # 1.6: fit and cache the Ridge, then diagnose it
+│  └─ signal_diagnostics.py                   # 1.6: the same three tests, on the LightGBM
 │
 ├─ stage2/                                    # the mapping layer
-│  ├─ mapping_form.py                         #   6: --curves / --params / --axes
-│  ├─ level_refit.py                          #   7: --model {tree,ridge}, twelve level estimators
-│  ├─ one_model.py                            #   7: --model {tree,ridge}, refits vs training size
-│  ├─ detrend_sweep.py                        #   8: --grid / --axis / --control
-│  ├─ pipeline.py                             #   9: the final rule, end to end, all three spans
-│  └─ scale_order.py                          #   9: solve the scale before or after smoothing
+│  ├─ mapping_form.py                         # 2.1, 2.2, 2.6: --curves / --params / --axes
+│  ├─ level_refit.py                          # 2.3, 2.4: --model {tree,ridge}, level estimators
+│  ├─ one_model.py                            # 2.4, 2.5: --model {tree,ridge}, refits vs data
+│  ├─ detrend_sweep.py                        # 2.3, 2.5-2.8: --grid / --axis / --control
+│  ├─ pipeline.py                             # 3.2, 3.3: the rule, end to end, and the result
+│  └─ scale_order.py                          #   A: solve the scale before or after smoothing
 │
 ├─ docs/                                      # where the chain above is written up
-│  ├─ performance_report.pdf                     #   THE REPORT: every step, in order
+│  ├─ performance_report.pdf                  #   THE REPORT: every step, in order
 │  ├─ method.tex                              #   its source
 │  └─ METHOD.md                               #   the same chain in markdown
 └─ README.md
@@ -187,30 +187,41 @@ checks, but it is run directly and exits with the number of mismatches.
 
 ---
 
-## Stages
+## Steps
 
-| stage | what it settles | span |
+The numbers above and below are the report's section numbers, so a file in the
+tree leads straight to the pages that use it.
+
+| step | what it settles | span |
 |---|---|---|
-| **1** | the 1132 feature columns, and that every transform is causal | — |
-| **2** | the split, cut once, so `test` is unreachable unless named | — |
-| **3** | training window and model capacity, **frozen before any feature test** | dev |
-| **4** | which feature blocks carry signal, and the remaining hyperparameters | dev |
-| **5** | the model's order is informative and its magnitude is not | dev |
-| **6** | the curve's shape does not matter; the volatility budget does | dev |
-| **7** | why the Ridge ships, and that a fit's output level cannot be estimated | dev, valid |
-| **8** | how much of the recent mean to remove, and how to hold turnover down | dev, valid |
-| **9** | the rule, end to end | all three |
+| **1.1** | the 1132 feature columns, the split, and that every transform is causal | — |
+| **1.2** | the group factors survive the sign flips their own construction can cause | train |
+| **1.3** | training window and model capacity, **frozen before any feature test** | dev |
+| **1.4** | which feature blocks carry signal | dev |
+| **1.5** | the remaining tree hyperparameters | dev |
+| **1.6** | the model's order is informative and its magnitude is not | dev |
+| **2.1** | the curve's shape does not matter | dev |
+| **2.2** | the volatility budget does | dev |
+| **2.3** | how much there is to gain from the reference set | dev |
+| **2.4** | why the Ridge ships and the LightGBM does not | dev, valid |
+| **2.5** | configurations are chosen on the metric, not on the ordering | dev, valid |
+| **2.6** | how much of the recent mean to remove | dev, valid |
+| **2.7** | turnover is the cost, and the metric does not charge it | valid |
+| **2.8** | how to hold turnover down without giving up the edge | dev, valid |
+| **3.1–3.3** | the selection rule, the rule itself, and the one reading of `test` | all three |
+| **A** | the volatility budget is left unspent on purpose | dev, valid |
 
-Stage 3 comes before stage 4 on purpose. The first ablation ran at the default
-tree settings and returned null for every block — but those settings grow four
-leaves on a 756-row window and touch 267 of 1132 columns, so the null was a
-statement about the model, not the features. Capacity had to be fixed first: at 4
-leaves every block's effect sits inside ±0.067, at 117 the D group separates at
-−0.187 (t = −2.81). Step 1.4 of the report has the rest.
+Step 1.3 comes before 1.4 on purpose. The first ablation ran at the default tree
+settings and returned null for every block, but those settings grow four leaves on
+a 756-row window and touch 267 of 1132 columns, so the null was a statement about
+the model rather than the features. Capacity had to be fixed first: at 4 leaves
+every block's effect sits inside ±0.067, at 117 the D group separates at −0.187
+(t = −2.81).
 
-Stage 2 comes after stage 1 on purpose too. The feature builder drops the leading
-warm-up rows, so the raw series has 8990 rows and the feature table 8918; a split
-computed on the raw index lands 58 rows away from where the models cut.
+Inside 1.1 the split comes after the feature builder, also on purpose. The builder
+drops the leading warm-up rows, so the raw series has 8990 rows and the feature
+table 8918; a split computed on the raw index lands 58 rows away from where the
+models cut.
 
 ---
 
