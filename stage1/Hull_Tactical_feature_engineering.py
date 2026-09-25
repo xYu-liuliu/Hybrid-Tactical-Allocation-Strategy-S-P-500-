@@ -216,7 +216,7 @@ def add_simple_interactions(
 
 
 # ============================================================
-# 4. Rolling feature construction
+# 4. Rolling feature engineering
 # ============================================================
 
 WIN = {
